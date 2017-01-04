@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import subprocess as sp
+import util
 
 import fs_haul_subtree
 
@@ -24,14 +25,17 @@ class p_haul_type(object):
 			raise Exception("Invalid runc container name: %s", ctid)
 
 		self._ctid = ctid
+		self._veths = []    #FIXME add values if connection -- how to find out?
 
 	def init_src(self):
+		self._bridged = True
 		try:
 			self._container_state = json.loads(sp.check_output([runc_bin,
 								"state",
 								self._ctid]))
 			self._runc_bundle = self._container_state["bundlePath"]
 			self._ct_rootfs = self._container_state["rootfsPath"]
+			self._root_pid = self._container_state["pid"]
 		except sp.CalledProcessError:
 			raise Exception(
 				"Unable to get container data, check if %s is running",
@@ -43,13 +47,13 @@ class p_haul_type(object):
 		logging.info("Container rootfs: %s", self._ct_rootfs)
 
 	def init_dst(self):
-		pass
+		self._bridged = False
 
 	def adjust_criu_req(self, req):
 		pass
 
 	def root_task_pid(self):
-		return self._ctid
+		return self._root_pid
 
 	def __load_ct_config(self, path):
 		self._ct_config = os.path.join(self._runc_bundle, runc_conf_name)
@@ -92,6 +96,7 @@ class p_haul_type(object):
 		logf = open("/tmp/runc_checkpoint.log", "w+")
 		ret = sp.call([runc_bin,
 				"checkpoint",
+				"--tcp-established",
 				image_path,
 				self._ctid],
 				stdout=logf,
@@ -116,6 +121,7 @@ class p_haul_type(object):
 		ret = sp.call([runc_bin,
 				"restore",
 				"-d",
+				"--tcp-established",
 				bundle,
 				image_path,
 				self._ctid],
@@ -125,7 +131,20 @@ class p_haul_type(object):
 			raise Exception("runc restore failed")
 
 	def can_pre_dump(self):
-		return False
+		return True
 
 	def dump_need_page_server(self):
 		return False
+
+	def can_migrate_tcp(self):
+		return True
+
+	def net_lock(self):
+		for veth in self._veths:
+			util.ifdown(veth.pair)
+
+	def net_unlock(self):
+		for veth in self._veths:
+			util.ifup(veth.pair)
+			if veth.link and not self._bridged:
+				util.bridge_add(veth.pair, veth.link)
