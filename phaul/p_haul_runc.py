@@ -29,11 +29,12 @@ class p_haul_type(object):
 			raise Exception("Invalid runc container name: %s", ctid)
 
 		self._ctid = ctid
-		self._veths = []    #FIXME add values if connection
+		self._veths = []
 		self._binds = {}
 
-	def _get_cgroup_list(self):
-		cgroup_list = []
+	def _parse_self_cgroup(self):
+		# Get pairs of {subsystem: root}
+		cgroups = {}
 		with open("/proc/self/cgroup", "r") as proc_cgroups:
 			for line in proc_cgroups.readlines():
 				parts = line.split(":")
@@ -41,9 +42,11 @@ class p_haul_type(object):
 					logging.error("Invalid cgroup entry %s found",
 							line)
 				else:
-					cgroup_list.append(re.sub("name=",
-							"", parts[1]))
-		return cgroup_list
+					subsystems = parts[1].split(",")
+					for subsystem in subsystems:
+						cgroups.update({re.sub("name=", "",
+								subsystem): parts[2]})
+		return cgroups
 
 	def init_src(self):
 		self._bridged = True
@@ -69,8 +72,7 @@ class p_haul_type(object):
 
 		if any([mount["device"] == "cgroup" for mount in
 				self._container_state["config"]["mounts"]]):
-			cgroups = self._get_cgroup_list()
-
+			cgroup_paths = self._container_state["cgroup_paths"]
 		for mount in self._container_state["config"]["mounts"]:
 			if mount["device"] == "bind":
 				if mount["destination"].startswith(self._ct_rootfs):
@@ -79,8 +81,12 @@ class p_haul_type(object):
 					dst = mount["destination"]
 				self._binds.update({dst: dst})
 			if mount["device"] == "cgroup":
-				for cgroup in cgroups:
-					dst = os.path.join(mount["destination"], cgroup)
+				for subsystem, c_mp in cgroup_paths.items():
+					# Remove container ID from path
+					mountpoint = os.path.split(c_mp)[0]
+					dst = os.path.join(mount["destination"],
+							# Get right order of subsystems
+							os.path.split(mountpoint)[0])
 					if dst.startswith(self._ct_rootfs):
 						dst = dst[len(self._ct_rootfs):]
 					self._binds.update({dst: dst})
@@ -92,15 +98,19 @@ class p_haul_type(object):
 		self._bridged = False
 
 	def adjust_criu_req(self, req):
-		if req.type == pycriu.rpc.DUMP:
-			req.opts.root = self._ct_rootfs
+		if req.type in [pycriu.rpc.DUMP, pycriu.rpc.RESTORE]:
 			req.opts.manage_cgroups = True
 			req.opts.notify_scripts = True
 			for key, value in self._binds.items():
 				req.opts.ext_mnt.add(key=key, val=value)
 
 		if req.type == pycriu.rpc.RESTORE:
+			req.opts.root = self._ct_rootfs
+
+		if req.type == pycriu.rpc.RESTORE:
 			req.opts.rst_sibling = True
+			req.opts.evasive_devices = True
+			# ? restore network
 
 	def root_task_pid(self):
 		return self._root_pid
@@ -112,8 +122,11 @@ class p_haul_type(object):
 	def set_options(self, opts):
 		pass
 
-	def mount(self):
+	def prepare_ct(self, pid):
 		pass
+
+	def mount(self):
+		return self._ct_rootfs
 
 	def umount(self):
 		pass
@@ -148,8 +161,8 @@ class p_haul_type(object):
 		criu_cr.criu_dump(self, pid, img, ccon, fs)
 
 	def migration_complete(self, fs, target_host):
-		ret = sp.call([runc_bin, "kill", self._ctid])
-		ret = sp.call([runc_bin, "delete", self._ctid])
+		sp.call([runc_bin, "kill", self._ctid])
+		sp.call([runc_bin, "delete", self._ctid])
 
 	def migration_fail(self, fs):
 		pass
@@ -157,9 +170,51 @@ class p_haul_type(object):
 	def target_cleanup(self, src_data):
 		pass
 
-	def final_restore(self, img, criu):
+	def final_restore(self, img, connection):
+		try:
+			with open(self._runc_bundle + "/config.json", "r") as config:
+				self._container_state = json.loads(config.read())
+			root_path = self._container_state["root"]["path"]
+		except IOError:
+			raise Exception("Unable to get container config")
+		except KeyError:
+			raise Exception("Invalid config")
+
+		if not os.path.isabs(root_path):
+			self._ct_rootfs = os.path.join(self._runc_bundle, root_path)
+		else:
+			self._ct_rootfs = root_path
+
+		if any([mount["type"] == "cgroup" for mount in
+				self._container_state["mounts"]]):
+			self_cgroups = self._parse_self_cgroup()
+			cgroup_paths = self._container_state["cgroup_paths"]
+		for mount in self._container_state["mounts"]:
+			if mount["type"] == "bind":
+				if mount["destination"].startswith(self._ct_rootfs):
+					dst = mount["destination"][len(self._ct_rootfs):]
+				else:
+					dst = mount["destination"]
+				self._binds.update({dst: mount["source"]})
+			if mount["type"] == "cgroup":
+				with open("/proc/self/mountinfo", "r") as mountinfo:
+					lines = mountinfo.readlines()
+				for subsystem, c_mp in cgroup_paths.items():
+					# Remove container ID from path
+					mountpoint = os.path.split(c_mp)[0]
+					dst = os.path.join(mount["destination"],
+							# Get right order of subsystems
+							os.path.split(mountpoint)[0])
+					if dst.startswith(self._ct_rootfs):
+						dst = dst[len(self._ct_rootfs):]
+					line = next(line for line in lines
+								if mountpoint in line)
+					src = os.path.join(mountpoint,
+							os.path.relpath(self_cgroups[subsystem],
+									line.split()[3]))
+					self._binds.update({dst: src})
+
 		#criu_cr.criu_restore(self, img, connection)
-		logf = open("/tmp/runc_restore.log", "w+")
 		bundle = "--bundle=" + self._runc_bundle
 		image_path = "--image-path=" + img.image_dir()
 
@@ -169,11 +224,11 @@ class p_haul_type(object):
 				"--tcp-established",
 				bundle,
 				image_path,
-				self._ctid],
-				stdout=logf,
-				stderr=logf)
-		if ret:
-			raise Exception("runc restore failed")
+				self._ctid])
+		# target host start container with params from final_restore sp?
+
+	def restored(self, pid):
+		pass
 
 	def can_pre_dump(self):
 		return True
@@ -183,6 +238,9 @@ class p_haul_type(object):
 
 	def can_migrate_tcp(self):
 		return True
+
+	def veths(self):
+		return self._veths
 
 	def net_lock(self):
 		for veth in self._veths:
