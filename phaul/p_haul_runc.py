@@ -8,6 +8,7 @@ import os
 import re
 import subprocess as sp
 import util
+import shutil
 
 import pycriu
 
@@ -126,10 +127,17 @@ class p_haul_type(object):
 		pass
 
 	def mount(self):
-		return self._ct_rootfs
+		nroot = os.path.join(self._runc_bundle , "criu_dir")
+		if not os.access(nroot, os.F_OK):
+			os.makedirs(nroot)
+		sp.call(["mount", "--bind", nroot, nroot])
+		return nroot
 
 	def umount(self):
-		pass
+		nroot = os.path.join(self._runc_bundle , "criu_dir")
+		if os.path.exists(nroot):
+			sp.call(["umount", nroot])
+			shutil.rmtree(nroot)
 
 	def start(self):
 		pass
@@ -214,17 +222,17 @@ class p_haul_type(object):
 									line.split()[3]))
 					self._binds.update({dst: src})
 
-		#criu_cr.criu_restore(self, img, connection)
-		bundle = "--bundle=" + self._runc_bundle
-		image_path = "--image-path=" + img.image_dir()
+		criu_cr.criu_restore(self, img, connection)
+		#bundle = "--bundle=" + self._runc_bundle
+		#image_path = "--image-path=" + img.image_dir()
 
-		ret = sp.call([runc_bin,
-				"restore",
-				"-d",
-				"--tcp-established",
-				bundle,
-				image_path,
-				self._ctid])
+		#ret = sp.call([runc_bin,
+		#		"restore",
+		#		"-d",
+		#		"--tcp-established",
+		#		bundle,
+		#		image_path,
+		#		self._ctid])
 		# target host start container with params from final_restore sp?
 
 	def restored(self, pid):
