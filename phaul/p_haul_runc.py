@@ -31,8 +31,9 @@ class p_haul_type(object):
 					ctid)
 
 		self._ctid = ctid
-		self._veths = []
+		self._veths = []	# TODO
 		self._binds = {}
+		self._inherit_fd = {}
 
 	def _parse_self_cgroup(self):
 		# Get pairs of {subsystem: root}
@@ -121,6 +122,8 @@ class p_haul_type(object):
 		if req.type == pycriu.rpc.RESTORE:
 			req.opts.rst_sibling = True
 			req.opts.evasive_devices = True
+			for key, value in self._inherit_fd.items():
+				req.opts.inherit_fd.add(key=key, fd=value)
 			# ? restore network
 
 	def root_task_pid(self):
@@ -141,7 +144,7 @@ class p_haul_type(object):
 		nroot = os.path.join(self._runc_bundle, "criu_dir")
 		if not os.access(nroot, os.F_OK):
 			os.makedirs(nroot)
-		sp.call(["mount", "--bind", nroot, nroot])
+		sp.call(["mount", "--bind", self._ct_rootfs, nroot])
 		return nroot
 
 	def umount(self):
@@ -244,18 +247,22 @@ class p_haul_type(object):
 							line.split()[3]))
 					self._binds.update({dst: src})
 
+		with open(img.image_dir() + "/descriptors.json", "r") as descr:
+			inherits = [(dsc, i) for i, dsc in
+					enumerate(json.loads(descr.read()))
+					if "pipe:" in dsc]
+		for dsc, i in inherits:
+			self._inherit_fd.update({dsc: i})
+
+		# TODO create /var/run/runc/ctid with state ?
+
 		criu_cr.criu_restore(self, img, connection)
+
 		#bundle = "--bundle=" + self._runc_bundle
 		#image_path = "--image-path=" + img.image_dir()
-
-		#ret = sp.call([runc_bin,
-		#		"restore",
-		#		"-d",
-		#		"--tcp-established",
-		#		bundle,
-		#		image_path,
-		#		self._ctid])
-		# target host start container with params from final_restore sp?
+		#work_path = "--work-path=" + img._wdir._dirname
+		#sp.call([runc_bin, "restore", "-d", bundle, image_path,
+		#		work_path, self._ctid])
 
 	def restored(self, pid):
 		pass
