@@ -27,7 +27,8 @@ class p_haul_type(object):
 
 		# Validate provided container ID
 		if (not(re.match("^[\w-]+$", ctid)) or len(ctid) > 1024):
-			raise Exception("Invalid runc container name: %s", ctid)
+			raise Exception("Invalid runc container name: %s",
+					ctid)
 
 		self._ctid = ctid
 		self._veths = []
@@ -40,13 +41,14 @@ class p_haul_type(object):
 			for line in proc_cgroups.readlines():
 				parts = line.split(":")
 				if len(parts) < 3:
-					logging.error("Invalid cgroup entry %s found",
+					logging.error("Invalid cgroup: %s",
 							line)
 				else:
 					subsystems = parts[1].split(",")
 					for subsystem in subsystems:
-						cgroups.update({re.sub("name=", "",
-								subsystem): parts[2]})
+						cgroups.update(
+							{re.sub("name=", "",
+							subsystem): parts[2]})
 		return cgroups
 
 	def init_src(self):
@@ -54,16 +56,20 @@ class p_haul_type(object):
 		try:
 			with open(runc_run + self._ctid + "/state.json",
 					"r") as state:
-				self._container_state = json.loads(state.read())
-			self._labels = self._container_state["config"]["labels"]
-			self._ct_rootfs = self._container_state["config"]["rootfs"]
-			self._root_pid = self._container_state["init_process_pid"]
+				self._container_state = json.loads(
+					state.read())
+			self._labels = self._container_state[
+						"config"]["labels"]
+			self._ct_rootfs = self._container_state[
+						"config"]["rootfs"]
+			self._root_pid = self._container_state[
+						"init_process_pid"]
 			self._ext_descriptors = json.dumps(
-						self._container_state["external_descriptors"])
+					self._container_state[
+						"external_descriptors"])
 		except IOError:
-			raise Exception(
-				"Unable to get container data, check if %s is running",
-				self._ctid)
+			raise Exception("No container %s is running",
+					self._ctid)
 		except KeyError:
 			raise Exception("Invalid container state retrieved")
 
@@ -76,8 +82,10 @@ class p_haul_type(object):
 			cgroup_paths = self._container_state["cgroup_paths"]
 		for mount in self._container_state["config"]["mounts"]:
 			if mount["device"] == "bind":
-				if mount["destination"].startswith(self._ct_rootfs):
-					dst = mount["destination"][len(self._ct_rootfs):]
+				if mount["destination"].startswith(
+						self._ct_rootfs):
+					dst = mount["destination"][len(
+							self._ct_rootfs):]
 				else:
 					dst = mount["destination"]
 				self._binds.update({dst: dst})
@@ -85,11 +93,13 @@ class p_haul_type(object):
 				for subsystem, c_mp in cgroup_paths.items():
 					# Remove container ID from path
 					mountpoint = os.path.split(c_mp)[0]
-					dst = os.path.join(mount["destination"],
-							# Get right order of subsystems
-							os.path.split(mountpoint)[0])
+					dst = os.path.join(
+							mount["destination"],
+							os.path.split(
+								mountpoint)[0])
 					if dst.startswith(self._ct_rootfs):
-						dst = dst[len(self._ct_rootfs):]
+						dst = dst[len(
+							self._ct_rootfs):]
 					self._binds.update({dst: dst})
 
 		self.__load_ct_config(self._runc_bundle)
@@ -117,7 +127,8 @@ class p_haul_type(object):
 		return self._root_pid
 
 	def __load_ct_config(self, path):
-		self._ct_config = os.path.join(self._runc_bundle, runc_conf_name)
+		self._ct_config = os.path.join(self._runc_bundle,
+						runc_conf_name)
 		logging.info("Container config: %s", self._ct_config)
 
 	def set_options(self, opts):
@@ -127,14 +138,14 @@ class p_haul_type(object):
 		pass
 
 	def mount(self):
-		nroot = os.path.join(self._runc_bundle , "criu_dir")
+		nroot = os.path.join(self._runc_bundle, "criu_dir")
 		if not os.access(nroot, os.F_OK):
 			os.makedirs(nroot)
 		sp.call(["mount", "--bind", nroot, nroot])
 		return nroot
 
 	def umount(self):
-		nroot = os.path.join(self._runc_bundle , "criu_dir")
+		nroot = os.path.join(self._runc_bundle, "criu_dir")
 		if os.path.exists(nroot):
 			sp.call(["umount", nroot])
 			shutil.rmtree(nroot)
@@ -146,7 +157,8 @@ class p_haul_type(object):
 		pass
 
 	def get_fs(self, fdfs=None):
-		return fs_haul_subtree.p_haul_fs([self._ct_rootfs, self._ct_config])
+		return fs_haul_subtree.p_haul_fs([self._ct_rootfs,
+							self._ct_config])
 
 	def get_fs_receiver(self, fdfs=None):
 		return None
@@ -180,8 +192,10 @@ class p_haul_type(object):
 
 	def final_restore(self, img, connection):
 		try:
-			with open(self._runc_bundle + "/config.json", "r") as config:
-				self._container_state = json.loads(config.read())
+			with open(self._runc_bundle + "/config.json",
+					"r") as config:
+				self._container_state = json.loads(
+							config.read())
 			root_path = self._container_state["root"]["path"]
 		except IOError:
 			raise Exception("Unable to get container config")
@@ -189,7 +203,8 @@ class p_haul_type(object):
 			raise Exception("Invalid config")
 
 		if not os.path.isabs(root_path):
-			self._ct_rootfs = os.path.join(self._runc_bundle, root_path)
+			self._ct_rootfs = os.path.join(self._runc_bundle,
+							root_path)
 		else:
 			self._ct_rootfs = root_path
 
@@ -199,27 +214,34 @@ class p_haul_type(object):
 			cgroup_paths = self._container_state["cgroup_paths"]
 		for mount in self._container_state["mounts"]:
 			if mount["type"] == "bind":
-				if mount["destination"].startswith(self._ct_rootfs):
-					dst = mount["destination"][len(self._ct_rootfs):]
+				if mount["destination"].startswith(
+							self._ct_rootfs):
+					dst = mount["destination"][len(
+							self._ct_rootfs):]
 				else:
 					dst = mount["destination"]
 				self._binds.update({dst: mount["source"]})
 			if mount["type"] == "cgroup":
-				with open("/proc/self/mountinfo", "r") as mountinfo:
+				with open("/proc/self/mountinfo",
+							"r") as mountinfo:
 					lines = mountinfo.readlines()
 				for subsystem, c_mp in cgroup_paths.items():
 					# Remove container ID from path
 					mountpoint = os.path.split(c_mp)[0]
-					dst = os.path.join(mount["destination"],
-							# Get right order of subsystems
-							os.path.split(mountpoint)[0])
+					dst = os.path.join(
+							mount["destination"],
+							os.path.split(
+								mountpoint)[0])
 					if dst.startswith(self._ct_rootfs):
-						dst = dst[len(self._ct_rootfs):]
+						dst = dst[len(
+							self._ct_rootfs):]
 					line = next(line for line in lines
-								if mountpoint in line)
+							if mountpoint in line)
 					src = os.path.join(mountpoint,
-							os.path.relpath(self_cgroups[subsystem],
-									line.split()[3]))
+						os.path.relpath(
+							self_cgroups[
+								subsystem],
+							line.split()[3]))
 					self._binds.update({dst: src})
 
 		criu_cr.criu_restore(self, img, connection)
