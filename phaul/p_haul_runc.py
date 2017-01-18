@@ -188,7 +188,6 @@ class p_haul_type(object):
 		criu_cr.criu_dump(self, pid, img, ccon, fs)
 
 	def migration_complete(self, fs, target_host):
-		sp.call([runc_bin, "kill", self._ctid])
 		sp.call([runc_bin, "delete", self._ctid])
 
 	def migration_fail(self, fs):
