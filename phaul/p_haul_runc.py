@@ -261,7 +261,7 @@ class p_haul_type(object):
 
 		ct_path = os.path.join(runc_run, self._ctid)
 		if not os.path.exists(ct_path):
-			os.mkdir(ct_path)
+			os.makedirs(ct_path)
 		with open(os.path.join(img.image_dir(), "state.json"),
 				"r") as old_state_file:
 			self._restore_state = json.loads(old_state_file.read())
