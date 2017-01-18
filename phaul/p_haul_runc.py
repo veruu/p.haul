@@ -167,14 +167,18 @@ class p_haul_type(object):
 		return None
 
 	def get_meta_images(self, path):
-		bundle_filename = os.path.join(path, "bundle.txt")
-		with open(bundle_filename, "w+") as bundle_file:
+		bundle_path = os.path.join(path, "bundle.txt")
+		with open(bundle_path, "w+") as bundle_file:
 			bundle_file.write(self._runc_bundle)
 		desc_path = os.path.join(path, "descriptors.json")
 		with open(desc_path, "w+") as desc_file:
 			desc_file.write(self._ext_descriptors)
-		return [(bundle_filename, "bundle.txt"),
-				(desc_path, "descriptors.json")]
+		shutil.copy(os.path.join(runc_run, self._ctid, "state.json"),
+				path)
+		return [(bundle_path, "bundle.txt"),
+				(desc_path, "descriptors.json"),
+				(os.path.join(path, "state.json"),
+						"state.json")]
 
 	def put_meta_images(self, dir):
 		with open(os.path.join(dir, "bundle.txt")) as bundle_file:
@@ -247,25 +251,29 @@ class p_haul_type(object):
 							line.split()[3]))
 					self._binds.update({dst: src})
 
-		with open(img.image_dir() + "/descriptors.json", "r") as descr:
+		with open(os.path.join(img.image_dir(), "descriptors.json"),
+				"r") as descr:
 			inherits = [(dsc, i) for i, dsc in
 					enumerate(json.loads(descr.read()))
 					if "pipe:" in dsc]
 		for dsc, i in inherits:
 			self._inherit_fd.update({dsc: i})
 
-		# TODO create /var/run/runc/ctid with state ?
+		ct_path = os.path.join(runc_run, self._ctid)
+		if not os.path.exists(ct_path):
+			os.mkdir(ct_path)
+		with open(os.path.join(img.image_dir(), "state.json"),
+				"r") as old_state_file:
+			self._restore_state = json.loads(old_state_file.read())
 
 		criu_cr.criu_restore(self, img, connection)
 
-		#bundle = "--bundle=" + self._runc_bundle
-		#image_path = "--image-path=" + img.image_dir()
-		#work_path = "--work-path=" + img._wdir._dirname
-		#sp.call([runc_bin, "restore", "-d", bundle, image_path,
-		#		work_path, self._ctid])
-
 	def restored(self, pid):
-		pass
+		self._restore_state["init_process_pid"] = pid
+		with open(os.path.join(os.path.join(runc_run, self._ctid),
+				"state.json"), "w+") as new_state_file:
+			new_state_file.write(json.dumps(self._restore_state))
+
 
 	def can_pre_dump(self):
 		return True
