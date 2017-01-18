@@ -273,6 +273,7 @@ class p_haul_type(object):
 		with open(os.path.join(os.path.join(runc_run, self._ctid),
 				"state.json"), "w+") as new_state_file:
 			new_state_file.write(json.dumps(self._restore_state))
+		self.umount()
 
 
 	def can_pre_dump(self):
