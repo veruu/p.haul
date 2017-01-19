@@ -53,8 +53,7 @@ class p_haul_type(object):
 	def init_src(self):
 		self._bridged = True
 		try:
-			with open(runc_run + self._ctid + "/state.json",
-					"r") as state:
+			with open(os.path.join(runc_run, self._ctid, "state.json"), "r") as state:
 				self._container_state = json.loads(state.read())
 			self._labels = self._container_state["config"]["labels"]
 			self._ct_rootfs = self._container_state["config"]["rootfs"]
@@ -93,8 +92,7 @@ class p_haul_type(object):
 		if self._container_state["config"]["mask_paths"] is not None:
 			masked = self._container_state["config"]["mask_paths"]
 			for path in masked:
-				filepath = os.path.join("/proc", self.root_task_pid,
-						"root", path)
+				filepath = os.path.join("/proc", self.root_task_pid, "root", path)
 				if (os.path.exists(filepath) and
 						not os.path.isdir(filepath)):
 					self._binds.update({path: "/dev/null"})
@@ -114,8 +112,6 @@ class p_haul_type(object):
 
 		if req.type == pycriu.rpc.RESTORE:
 			req.opts.root = self._ct_rootfs
-
-		if req.type == pycriu.rpc.RESTORE:
 			req.opts.rst_sibling = True
 			req.opts.evasive_devices = True
 			for key, value in self._inherit_fd.items():
@@ -125,8 +121,7 @@ class p_haul_type(object):
 		return self._root_pid
 
 	def __load_ct_config(self, path):
-		self._ct_config = os.path.join(self._runc_bundle,
-						runc_conf_name)
+		self._ct_config = os.path.join(self._runc_bundle, runc_conf_name)
 		logging.info("Container config: %s", self._ct_config)
 
 	def set_options(self, opts):
@@ -190,7 +185,7 @@ class p_haul_type(object):
 
 	def final_restore(self, img, connection):
 		try:
-			with open(self._runc_bundle + "/config.json", "r") as config:
+			with open(os.path.join(self._runc_bundle, runc_conf_name), "r") as config:
 				self._container_state = json.loads(config.read())
 			root_path = self._container_state["root"]["path"]
 		except IOError:
@@ -249,8 +244,8 @@ class p_haul_type(object):
 
 	def restored(self, pid):
 		self._restore_state["init_process_pid"] = pid
-		with open(os.path.join(os.path.join(runc_run, self._ctid),
-				"state.json"), "w+") as new_state_file:
+		with open(os.path.join(runc_run, self._ctid, "state.json"),
+				"w+") as new_state_file:
 			new_state_file.write(json.dumps(self._restore_state))
 		self.umount()
 
