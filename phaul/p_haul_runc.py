@@ -103,6 +103,16 @@ class p_haul_type(object):
 							self._ct_rootfs):]
 					self._binds.update({dst: dst})
 
+		if self._container_state["config"]["mask_paths"] is not None:
+			masked = self._container_state["config"]["mask_paths"]
+			for path in masked:
+				filepath = os.path.join("/proc",
+						self.root_task_pid,
+						"root", path)
+				if (os.path.exists(filepath) and
+						not os.path.isdir(filepath)):
+					self._binds.update({path: "/dev/null"})
+
 		self.__load_ct_config(self._runc_bundle)
 		logging.info("Container rootfs: %s", self._ct_rootfs)
 
@@ -124,7 +134,6 @@ class p_haul_type(object):
 			req.opts.evasive_devices = True
 			for key, value in self._inherit_fd.items():
 				req.opts.inherit_fd.add(key=key, fd=value)
-			# ? restore network
 
 	def root_task_pid(self):
 		return self._root_pid
