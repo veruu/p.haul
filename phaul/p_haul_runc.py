@@ -5,6 +5,7 @@
 import json
 import logging
 import os
+import pwd
 import re
 import shutil
 import subprocess as sp
@@ -30,7 +31,7 @@ class p_haul_type(object):
 			raise Exception("Invalid runc container name: %s", ctid)
 
 		self._ctid = ctid
-		self._veths = []  # TODO
+		self._veths = []
 		self._binds = {}
 		self._inherit_fd = {}
 
@@ -102,6 +103,8 @@ class p_haul_type(object):
 
 	def init_dst(self):
 		self._bridged = False
+		if os.path.exists(os.path.join(runc_run, self._ctid)):
+			raise Exception("Container with same ID already exists")
 
 	def adjust_criu_req(self, req):
 		if req.type in [pycriu.rpc.DUMP, pycriu.rpc.RESTORE]:
@@ -178,7 +181,9 @@ class p_haul_type(object):
 		sp.call([runc_bin, "delete", self._ctid])
 
 	def migration_fail(self, fs):
-		pass
+		p_haul_user = pwd.getpwuid(os.geteuid()).pw_name
+		sp.call(["ssh", p_haul_user + "@" + fs._p_haul_fs__thost,
+				"rm -r", self._runc_bundle + "/*"])
 
 	def target_cleanup(self, src_data):
 		pass
@@ -234,9 +239,19 @@ class p_haul_type(object):
 		for dsc, i in inherits:
 			self._inherit_fd.update({dsc: i})
 
+		if "networks" in self._container_state:
+			for network in self._container_state["networks"]:
+				if network["type"] == "veth":
+					self._veths.append(util.net_dev(
+						network["name"],
+						network["host_interface_name"],
+						network["bridge"]))
+
 		ct_path = os.path.join(runc_run, self._ctid)
 		if not os.path.exists(ct_path):
-			os.makedirs(ct_path)
+			os.makedirs(ct_path, 0711)
+		else:
+			raise Exception("Container with same ID already exists")
 		with open(os.path.join(img.image_dir(), "state.json"), "r") as old_state_file:
 			self._restore_state = json.loads(old_state_file.read())
 
