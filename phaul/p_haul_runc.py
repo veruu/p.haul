@@ -183,7 +183,7 @@ class p_haul_type(object):
 	def migration_fail(self, fs):
 		p_haul_user = pwd.getpwuid(os.geteuid()).pw_name
 		sp.call(["ssh", p_haul_user + "@" + fs._p_haul_fs__thost,
-				"rm -r", self._runc_bundle + "/*"])
+			"rm -r", self._runc_bundle + "/*"])
 
 	def target_cleanup(self, src_data):
 		pass
@@ -247,11 +247,6 @@ class p_haul_type(object):
 						network["host_interface_name"],
 						network["bridge"]))
 
-		ct_path = os.path.join(runc_run, self._ctid)
-		if not os.path.exists(ct_path):
-			os.makedirs(ct_path, 0711)
-		else:
-			raise Exception("Container with same ID already exists")
 		with open(os.path.join(img.image_dir(), "state.json"), "r") as old_state_file:
 			self._restore_state = json.loads(old_state_file.read())
 
@@ -259,6 +254,11 @@ class p_haul_type(object):
 
 	def restored(self, pid):
 		self._restore_state["init_process_pid"] = pid
+		ct_path = os.path.join(runc_run, self._ctid)
+		if not os.path.exists(ct_path):
+			os.makedirs(ct_path, 0711)
+		else:
+			raise Exception("Container with same ID already exists")
 		with open(os.path.join(runc_run, self._ctid, "state.json"),
 				"w+") as new_state_file:
 			new_state_file.write(json.dumps(self._restore_state))
